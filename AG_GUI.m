@@ -1,12 +1,16 @@
 function varargout = AG_GUI(varargin)
-% 26 Jan 16
+% 26 Jan 16 modified 6/March/2018  27/9/18
+
 %varargout is an output variable in a function definition statement that
 %allows the function to return any number of output arguments
+
 
 % AG_GUI MATLAB code for AG_GUI.fig
 %      AG_GUI, by itself, creates a new AG_GUI or raises the existing
 %      singleton*.
+
 %
+
 %      H = AG_GUI returns the handle to a new AG_GUI or the handle to
 %      the existing singleton*.
 %
@@ -26,7 +30,7 @@ function varargout = AG_GUI(varargin)
 
 % Edit the above text to modify the response to help AG_GUI
 
-% Last Modified by GUIDE v2.5 23-Mar-2016 16:22:13
+% Last Modified by GUIDE v2.5 16-May-2017 18:20:24
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -83,8 +87,21 @@ function StartButton_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 
-%1. Make sure stop button is not pressed
+%1. Make sure push buttons are not pressed, and counters display 0
 set(handles.StopButton,'Value',0);
+set(handles.Open_right,'Value',0);
+set(handles.Open_left,'Value',0);
+% displays
+set (handles.Right_Licks_counter, 'string',0);
+set (handles.Left_Licks_counter, 'string',0);
+set(handles.LicksDisplay, 'string', '0');
+set(handles.HitsDisplay, 'string', '0'); 
+set (handles.Hits_Right, 'string',0);
+set (handles.Hits_Left, 'string',0);
+set(handles.GoDisplay, 'string', 0);
+set(handles.TexturePresented, 'string', 0); 
+set (handles.Current_Trial_Num, 'string', 0);
+set(handles.Display_END, 'string', 'RUNNING');
 
 %2. Collect all information that the USER has enetered
 %2.1 transform sec to msec
@@ -95,32 +112,29 @@ params.ITIDuration = 1000* str2double(get(handles.ITI_Duration_Input,'String'));
 params.VacuumDuration = 1000* str2double(get(handles.Vacuum_Duration_Input,'String'));
 params.ToneDuration = 1000* str2double(get(handles.Tone_Duration_Input,'String'));
 params.PunishmentDuration = 1000* str2double(get(handles.Punishment_Duration_Input,'String'));
+params.OpenWater=1000* str2double(get(handles.OpenWater,'String'));
+%%2.2 numbers
 params.Nchoices = str2double(get(handles.Last_N_Choices,'String'));
 params.Nlicks = str2double(get(handles.Last_N_Licks,'String'));
 params.N_Trials_Exp = str2double(get(handles.N_Trials_Input,'String'));
+params.Stage2Repetitions=str2double(get(handles.Stage2_repetitions,'String'));
+params.PinP=str2double(get(handles.PinP,'String')); %how many time to do punishment within punishment
+params.Rotation_angle=str2double(get(handles.Rotation_angle,'String'));
+params.Cue_Freqency=str2double(get(handles.Cue_Freqency,'String'));
+%%2.3 strings
 params.MouseName=get(handles.MouseID_Input,'String');
 params.TrainingStages=get(handles.TrainingStagesPopDown,'Value');
 
-%3. generate the file name like "MouseID_Date", i.g: Miki_12Jan2011_14_41_19 
+% %tests for collecting the data provided by the USER
+% fprintf ('sample duration is %d \n' ,params.SampleDuration); 
+
+%%3. generate a file name in the format: "MouseID_Date_time", i.g: Miki_12Jan2011_14_41_19 
+KeepMouseName=params.MouseName;
 ExpTime=datestr(now); % => 12-Jan-2016 14:41:19
 ExpTime=ExpTime(ExpTime~='-');  %12Jan2011 14:41:19
 ExpTime=strrep(ExpTime, ' ', '_');%12Jan2011_14:41:19
 ExpTime=strrep(ExpTime, ':', '_');%12Jan2011_14_41_19
 params.MouseName=[params.MouseName,'_',ExpTime];%Miki_12Jan2016_14_52_45
-
-% %tests for collecting the data provided by the USER
-% fprintf ('sample duration is %d \n' ,params.SampleDuration); 
-% fprintf ('retention duration is %d \n' ,params.RetentionDuration); 
-% fprintf ('response duration is %d \n' ,params.ResponseDuration); 
-% fprintf ('ITI duration is %d \n' ,params.ITIDuration); 
-% fprintf ('vacuum duration is %d \n' ,params.VacuumDuration); 
-% fprintf ('tone duration is %d \n' ,params.ToneDuration); 
-% fprintf ('punishment duration is %d \n' ,params.PunishmentDuration); 
-% fprintf ('sliding window of N last trials for choices is %d \n' ,params.Nchoices); 
-% fprintf ('sliding window of N last licks is %d \n' ,params.Nlicks); 
-% fprintf ('mouse name is %s \n' ,params.MouseName); 
-% fprintf ('number of trials in the experiemnt %d \n' ,params.N_Trials_Exp); 
-% fprintf ('the training stage is %d \n' ,params.TrainingStages); 
 
 %4. Open communication with the Arduino 
 delete(instrfindall); % if any port is already opened by MATLAB its gonna find and close it
@@ -134,135 +148,480 @@ s.Terminator = 'LF';  %Since I am sending the data in a string format
 %acquired data
 s.InputBufferSize=2^16;
 fopen(s);  
-pause(2);
+pause(4);
 % s.ReadAsyncMode = 'manual';
 % readasync(s); 
 
 %5. sending data to the Arduino
-%5.1 change the 'training stage' from a number (1 or 2 or 3 or 4) to what
-%the arduino expects: A,B,C,D,S
+%5.1 change the 'training stage' from a number (1 or 2 or 3 or 4 or 5) to what
+%the arduino expects: Z, A,B,C,D
 switch (params.TrainingStages)
     case 1
-        stage='A';
+        stage='Z'; %licking from the lick ports.
     case 2
-        stage='B';
+        stage='A'; %Association between the cue and the water.
     case 3
-        stage='C';
+        stage='B';% Association between S1 to R1, and S2 to R2.
     case 4
-        stage='D';
+        stage='C';% Discrimination without delay.
+    case 5
+        stage='D';% Discrimination with delay.
 end %of switch for experiment stage
 
-%5.2 sending 9 variables seq to Arduino
-fprintf(s,'%s,',stage);                  fprintf(s,'%d,',params.N_Trials_Exp);
-fprintf(s,'%d,',params.SampleDuration);  fprintf(s,'%d,',params.RetentionDuration);
-fprintf(s,'%d,',params.ResponseDuration);fprintf(s,'%d,',params.ITIDuration);
-fprintf(s,'%d,',params.VacuumDuration);  fprintf(s,'%d,',params.ToneDuration);
-fprintf(s,'%d',params.PunishmentDuration);
+%fprintf ('stage %s\n', stage ); 
+%5.2 sending a 14 variables seq to Arduino
 
-% fprintf('%s ,',stage)                  
-% fprintf('%d ,',params.N_Trials_Exp)
-% fprintf('%d ,',params.SampleDuration)  
-% fprintf('%d ,',params.RetentionDuration)
-% fprintf('%d ,',params.ResponseDuration)
-% fprintf('%d ,',params.ITIDuration)
-% fprintf('%d ,',params.VacuumDuration)
-% fprintf('%d ,',params.ToneDuration)
-% fprintf('%d ',params.PunishmentDuration)
+% A test for what I'm actually sending
+% fprintf('%s,',stage);                   fprintf('%d,',params.N_Trials_Exp);
+% fprintf('%d,',params.SampleDuration);    fprintf('%d,',params.RetentionDuration);
+% fprintf('%d,',params.ResponseDuration);  fprintf('%d,',params.ITIDuration);
+% fprintf('%d,',params.VacuumDuration);    fprintf('%d,',params.ToneDuration);
+% fprintf('%d,',params.PunishmentDuration); fprintf('%d,',params.OpenWater); 
+% fprintf('%d,',params.Stage2Repetitions);  fprintf('%d,',params.PinP); 
+% fprintf('%d,',params.Rotation_angle);     fprintf('%d',params.Cue_Freqency);
 
-%6 operation
+fprintf(s,'%s,',stage);                    fprintf(s,'%d,',params.N_Trials_Exp);
+fprintf(s,'%d,',params.SampleDuration);    fprintf(s,'%d,',params.RetentionDuration);
+fprintf(s,'%d,',params.ResponseDuration);  fprintf(s,'%d,',params.ITIDuration);
+fprintf(s,'%d,',params.VacuumDuration);    fprintf(s,'%d,',params.ToneDuration);
+fprintf(s,'%d,',params.PunishmentDuration); fprintf(s,'%d,',params.OpenWater); 
+fprintf(s,'%d,',params.Stage2Repetitions);  fprintf(s,'%d,',params.PinP); 
+fprintf(s,'%d,',params.Rotation_angle);     fprintf(s,'%d \n',params.Cue_Freqency);
+
+%%6 operation
 global KEEP_READING;
 KEEP_READING=1;
 
 switch (params.TrainingStages)
-    case 1 %Once the user press 'start' the valves are opened until the user press on Stop
-      %display of time 
+    case 1 %sending Z to the Arduino
+        %Once the user press 'start' the Arduino opens the valves for the
+        %openning duration time. The valves are reopened after any lick
+        %until the user press on Stop
+        %display of time 
 
-      %At this stage of training, i'm only sending a start and a stop
+      %I'm saving the data:
+      % 1st raw=time
+      %2nd raw = R licks
+      %3rd raw =L licks
+      R_Licks=0; L_Licks=0;  %lick counters
+      Table_counter=2;Table(1,1)=0;
         while KEEP_READING
             arduinoMessage = readAndParseArduionoSerialMessage(s);
             %check if message has content
                     if numel(arduinoMessage)>0
                       ExperimentTime=arduinoMessage.experimentElapsedTime/60000;%convert from msec to min
                       set (handles.ElapsedTime, 'string',ExperimentTime);
-                    end %of if
+                      set(handles.SpeedDisplay, 'string',...
+                          arduinoMessage.carrouselVelocityMeterPerSec);
+                      if arduinoMessage.lickEventCorrectTiming ==1
+                         %at this stage the
+                          %side of the lick is sent within this variable
+                          R_Licks=R_Licks+1;
+                          set (handles.Right_Licks_counter, 'string',R_Licks);
+                          Table(1,Table_counter)=arduinoMessage.experimentElapsedTime;
+                          Table(2,Table_counter)=1; Table(3,Table_counter)=0;
+                          Table_counter=Table_counter+1;
+                      elseif arduinoMessage.lickEventCorrectTiming ==2
+                          L_Licks=L_Licks+1;
+                          set (handles.Left_Licks_counter, 'string',L_Licks);
+                          Table(1,Table_counter)=arduinoMessage.experimentElapsedTime;
+                          Table(3,Table_counter)=1; Table(2,Table_counter)=0;
+                          Table_counter=Table_counter+1;
+                      end %of if there was a lick
+                    end %of if there's content in the message
              KEEP_READING= ~get(handles.StopButton,'Value');
-             pause(0.0001);
-        end %of while
-        
-    case {2,3}
-    %There's a Response time, an ITI, and a punishment.
-    %count licks in response time and licks in ITI
-    %The only difference between cases 2 and 3 is that in #3
-    % water is delivered only after the first lick that follows the tone
-      TotalLicks=0;    
-      NumberofTrials=0;
-      %CorrectTimeLicks is a matrix in which
-      % columns are licks
-      % row 1 is 1 or 0 for within response time or not
-      while KEEP_READING
-         arduinoMessage = readAndParseArduionoSerialMessage(s);
-         %check if message has content
-         if numel(arduinoMessage)>0
-             if arduinoMessage.trialBeginningEvent==1
-                 NumberofTrials=NumberofTrials+1; %counting trials
-                 set (handles.Current_Trial_Num, 'string', NumberofTrials);
-             end %of if for trial begining
-             ExperimentTime=arduinoMessage.experimentElapsedTime/60000;%convert from msec to min
-             set (handles.ElapsedTime, 'string', ExperimentTime);
-             set(handles.Stage_of_Trial, 'string', arduinoMessage.trailStage);
-             if arduinoMessage.lickEventCorrectTiming == 1 %lick within
-                                                      %Response time
-                  TotalLicks=TotalLicks+1;
-                  CorrectTimeLicks(TotalLicks)=1;
-             elseif arduinoMessage.lickEventCorrectTiming ==0
-                  TotalLick=TotalLick+1;
-                  CorrectTimeLicks(TotalLicks)=0;   
-             end %another possibility is arduinoMessage.lickEventCorrectTiming=-1 ->no lick
-             
-             %plot CorrectTimeLicks. Each N last licks are meaned and
-             %displayed as another point. All points from the experiemnt
-             % begining are displayed 
-             
-            if mod(TotalLicks,params.Nlicks)>0    
-                Last_N_Values (mod(TotalLicks,params.Nlicks))...
-                    =CorrectTimeLicks(TotalLicks);
-            else  %when mod (TotalLicks,params.Nlickss)=0 
-                 Last_N_Values(params.Nlicks)...
-                    =CorrectTimeLicks(TotalLicks);
-            end
-            if length(Last_N_Values) == params.Nlicks%Last_N_Values is full
-                axes(handles.Plot_Lick_Timing);
-                Lick_TimingIndex=TotalLicks-params.Nlicks+1;
-                Lick_Plot(Lick_TimingIndex)=mean(Last_N_Values);
-                plot (Lick_Plot); 
-            end
-              if KEEP_READING %at end of experiemnt KEEP_READING= 0 and 
-                 %there's no point checking the stop
-                KEEP_READING= ~get(handles.StopButton,'Value');
-                if ~KEEP_READING
+             if ~KEEP_READING %stop
                     stage='S';
                     fprintf(s,'%s',stage); 
-                    fprintf(s,'%s',stage)
-                end
+                    pause(0.001);
+                    delete(instrfindall);
              end
-         end %of if corresponding to if there's content in the message
-      pause(0.0001);
-      end %of while reading loop for experiments #2 or #3
-        
+        pause(0.0001);
+        end %of while
+     
+   
+    case {2} %arduino receives A
+    %%There's an ITI that ends when the mouse licks
+    % then there's a Response time in which  the water valve isn't
+    % opened again
+    %count licks and amake a table as before, plus another row: 
+    %4th for ITI- 0 for licks in Response time 1 for licks in ITI
+      R_Licks=0; L_Licks=0;  %lick counters
+      Table_counter=2;Table(1,1)=0;
+      ReceivedDataFilename=['Received_', params.MouseName];
+      Table_Filename=['Table_', params.MouseName];
+            
+        while KEEP_READING
+            arduinoMessage = readAndParseArduionoSerialMessage(s);
+            ReceivedData(arduinoMessage.messageId)=arduinoMessage; 
+                    if numel(arduinoMessage)>0 %check if message has content
+                      ExperimentTime=arduinoMessage.experimentElapsedTime/60000;%convert from msec to min
+                      set (handles.ElapsedTime, 'string',ExperimentTime);
+                      set(handles.SpeedDisplay, 'string',...
+                        arduinoMessage.carrouselVelocityMeterPerSec);
+                      set(handles.Stage_of_Trial, 'string', arduinoMessage.trailStage);
+                      if strcmp(arduinoMessage.trailStage,'It') %0 if aren't the same 1 is the same
+                          ITI=1;
+                      else ITI=0;
+                      end
+                      if arduinoMessage.lickEventCorrectTiming ==2 %at this stage the
+                          %side of the lick is sent within this variable
+                            %27-9-18 bug fix AG changed from 1 to 2 
+                          R_Licks=R_Licks+1;
+                          set (handles.Right_Licks_counter, 'string',R_Licks);
+                          Table(1,Table_counter)=arduinoMessage.experimentElapsedTime;
+                          Table(2,Table_counter)=1; Table(3,Table_counter)=0;
+                          Table(4,Table_counter)=ITI;
+                          Table_counter=Table_counter+1;
+                      elseif arduinoMessage.lickEventCorrectTiming ==1
+                          L_Licks=L_Licks+1;
+                          set (handles.Left_Licks_counter, 'string',L_Licks);
+                          Table(1,Table_counter)=arduinoMessage.experimentElapsedTime;
+                          Table(3,Table_counter)=1; Table(2,Table_counter)=0;
+                          Table(4,Table_counter)=ITI;
+                          Table_counter=Table_counter+1;
+                      end %of if there was a lick
+                    end %of if there's content in the message
+%save(ReceivedDataFilename,'ReceivedData'); 
+             %save(Table_Filename,'Table');  Sep-18
+             KEEP_READING= ~get(handles.StopButton,'Value');
+             if ~KEEP_READING %stop
+                stage='S';
+                fprintf(s,'%s',stage); 
+                pause(0.001);
+                delete(instrfindall);
+             end
+        pause(0.0001);
+       save(ReceivedDataFilename,'ReceivedData');   %8-3-18
+       %save(Table_Filename,'Table'); Sep-18
+        end %of while
+        ReceivedData(1).('parmatrers') = params;%AG added 9-Oct-18
+       save(ReceivedDataFilename,'ReceivedData');   
+       %save(Table_Filename,'Table'); Sep-18
+%%
+    case 3 %Sending B to the Arduino
+           %Association between S1 to R1, and between S2 to R2.
 
-    case 4  %discrimination learning
+        %There is a Sample time, and a short ITI
+        %During the Sample time a texture is presented and if the mouse licks
+        %at the correct side it receives reward
+        %Need sometimes to open a specific valve manually without a lick.
+     R_Licks=0; L_Licks=0;  %lick counters
+     Table_counter=2;
+     Table={};
+     Table(1,1)={'Time'};
+     Table(2,1)={'2 R lick'};
+     Table(3,1)={'1 L lick'};
+     Table(4,1)={'ITI'};
+     Table(5,1)={'S'};
+     Table(6,1)={'OpenR'};
+     Table(7,1)={'OpenL'};
+     L_Hits=0; R_Hits=0; 
+     TrialCounter=0; 
+     ReceivedDataFilename=['Received_', params.MouseName];
+     Table_Filename=['Table_', params.MouseName];
+        while KEEP_READING
+            %if the user has clicked on openning a lick port, send to the
+            %Arduino the releveant command
+            OpenR=0; OpenL=0;
+            if get(handles.Open_right,'Value')==1
+              fprintf(s,'R');
+              OpenR=1;
+              set(handles.Open_right,'Value',0);
+            end
+            if get(handles.Open_left,'Value')==1
+              fprintf(s,'L');
+              OpenL=1;
+              set(handles.Open_left,'Value',0);
+            end
+            %read a message from the Arduino     
+            arduinoMessage = readAndParseArduionoSerialMessage(s);
+            ReceivedData(arduinoMessage.messageId)=arduinoMessage; 
+            if numel(arduinoMessage)>0 %check if message has content
+                  ExperimentTime=arduinoMessage.experimentElapsedTime/60000;%convert from msec to min
+                  set (handles.ElapsedTime, 'string',ExperimentTime);
+                  set(handles.SpeedDisplay, 'string',...
+                    arduinoMessage.carrouselVelocityMeterPerSec);
+                  set(handles.Stage_of_Trial, 'string', arduinoMessage.trailStage);
+                  set(handles.TexturePresented, 'string', arduinoMessage.thisTrialTexture); 
+                  if arduinoMessage.trialBeginningEvent == 2 %end of the experiment
+                      KEEP_READING =0;
+                  elseif arduinoMessage.trialBeginningEvent ==1
+                        TrialCounter=TrialCounter+1;
+                        set(handles.Current_Trial_Num, 'string', TrialCounter);
+                  end 
+
+                      %Making a table of licks and of openning water valves by the
+                      %user
+                      
+                      %1. extract from the data if the lick is at right or
+                      %left port
+                      %2. calculate for each lick in the Sample time if it was hit/miss 
+                      %and if it was a hit for port 1 or for fort 2
+                  if strcmp(arduinoMessage.trailStage,'It') %0 if the two strings aren't 
+                      %the same 1 is if the same
+                      ITI=1;
+                  else ITI=0;
+                  end
+
+                  if arduinoMessage.thisTrialTexture==1
+                      Sone=1;
+                  else
+                      Sone=2;
+                  end
+
+                  if (arduinoMessage.lickEventCorrectPort ==1 && arduinoMessage.thisTrialTexture==1)
+                      %there was a correct lick at 1(left)
+                      L_Licks=L_Licks+1; 
+                      set(handles.Left_Licks_counter, 'string',L_Licks);
+                      Table(1,Table_counter)={ExperimentTime};
+                      Table(2,Table_counter)={0};
+                      Table(3,Table_counter)={1};
+                      Table(4,Table_counter)={ITI};
+                      Table(5,Table_counter)={Sone};
+                      Table(6,Table_counter)={OpenR};
+                      Table(7,Table_counter)={OpenL};
+                      Table_counter=Table_counter+1;
+                      if arduinoMessage.lickEventCorrectTiming ==1
+                          L_Hits=L_Hits+1;
+                          set(handles.Hits_Left, 'string',L_Hits);
+                      end
+                  elseif(arduinoMessage.lickEventCorrectPort ==2 && arduinoMessage.thisTrialTexture==2) 
+                      %there was an incorrect lick at 1(left)
+                      L_Licks = L_Licks+1; 
+                      set (handles.Left_Licks_counter, 'string',L_Licks);
+                      Table(1,Table_counter)={ExperimentTime};
+                      Table(2,Table_counter)={0};%right lick
+                      Table(3,Table_counter)={1};%left lick
+                      Table(4,Table_counter)={ITI};
+                      Table(5,Table_counter)={Sone};
+                      Table(6,Table_counter)={OpenR};
+                      Table(7,Table_counter)={OpenL};
+                      Table_counter=Table_counter+1;
+
+                  elseif (arduinoMessage.lickEventCorrectPort ==1 && arduinoMessage.thisTrialTexture==2)
+                      %there was a correct lick at 2(right)
+                      R_Licks=R_Licks+1; 
+                      set(handles.Right_Licks_counter, 'string',R_Licks);
+                      Table(1,Table_counter)={ExperimentTime};
+                      Table(2,Table_counter)={1};%right lick
+                      Table(3,Table_counter)={0};%left lick
+                      Table(4,Table_counter)={ITI};
+                      Table(5,Table_counter)={Sone};
+                      Table(6,Table_counter)={OpenR};
+                      Table(7,Table_counter)={OpenL};
+                      Table_counter=Table_counter+1;
+                      if arduinoMessage.lickEventCorrectTiming ==1
+                          R_Hits=R_Hits+1;
+                          set(handles.Hits_Right, 'string',R_Hits);
+                      end
+                  elseif (arduinoMessage.lickEventCorrectPort ==2 && arduinoMessage.thisTrialTexture==1)
+                      %there was an incorrect lick at 2(right)
+                      R_Licks=R_Licks+1;
+                      set (handles.Right_Licks_counter, 'string',R_Licks);
+                      Table(1,Table_counter)={ExperimentTime};
+                      Table(2,Table_counter)={1};%right lick
+                      Table(3,Table_counter)={0};%left lick
+                      Table(4,Table_counter)={ITI};
+                      Table(5,Table_counter)={Sone};
+                      Table(6,Table_counter)={OpenR};
+                      Table(7,Table_counter)={OpenL};
+                      Table_counter=Table_counter+1;
+                  elseif (arduinoMessage.lickEventCorrectPort ==0 && (OpenR+OpenL)>0)
+                      %there was no lick but the user opened a valve
+                      Table(1,Table_counter)={ExperimentTime};
+                      Table(2,Table_counter)={0};%right lick
+                      Table(3,Table_counter)={0};%left lick
+                      Table(4,Table_counter)={ITI};
+                      Table(5,Table_counter)={Sone};
+                      Table(6,Table_counter)={OpenR};
+                      Table(7,Table_counter)={OpenL};
+                      Table_counter=Table_counter+1;
+                  end
+            end %there was content in the message
+         %save(Table_Filename,'Table'); Sep-18
+         save(ReceivedDataFilename,'ReceivedData'); 
+         KEEP_READING= ~get(handles.StopButton,'Value');
+         if ~KEEP_READING %stoping
+                stage='S';
+                fprintf(s,'%s',stage); 
+                pause(0.001);
+                delete(instrfindall);
+         end
+        pause(0.0001);
+        if TrialCounter == params.N_Trials_Exp %AG 8-3-18
+            KEEP_READING=0;
+        end
+            
+        end %of while 
+
+        ReceivedDataFilename=['Received_', params.MouseName];
+        save(ReceivedDataFilename,'ReceivedData'); 
+        Table_Filename=['Table_', params.MouseName];
+        save(Table_Filename,'Table');
+%%
+    case 4 %discrimination with no delay %%Sending C
+       %Association between S1 to R1, and between S2 to R2.
+        %SAME CODE AS FOR CASE 3 - all the differences are in the Arduino
+        %There is a Sample time, and a short ITI
+        %During the Sample time a texture is presented and if the mouse licks
+        %at the correct side it receives reward
+        %Need sometimes to open a specific valve manually without a lick.
+        R_Licks=0; L_Licks=0;  %lick counters
+        Table_counter=2;Table(1,1)=0;
+        L_Hits=0; R_Hits=0; 
+        TrialCounter=0; 
+        ReceivedDataFilename=['Received_', params.MouseName];%AG moved from after the while loop 
+        Table_Filename=['Table_', params.MouseName];%AG moved from after the while loop
+        while KEEP_READING
+            %if the user has clicked on openning a lick port, send to the
+            %Arduino the releveant command
+            OpenR=0; OpenL=0;
+            if get(handles.Open_right,'Value')==1
+              fprintf(s,'R');
+              OpenR=1;
+              set(handles.Open_right,'Value',0);
+            end
+            if get(handles.Open_left,'Value')==1
+              fprintf(s,'L');
+              OpenL=1;
+              set(handles.Open_left,'Value',0);
+            end
+            %read a message from the Arduino     
+            arduinoMessage = readAndParseArduionoSerialMessage(s);
+            ReceivedData(arduinoMessage.messageId)=arduinoMessage; 
+            if numel(arduinoMessage)>0 %check if message has content line 463
+                  ExperimentTime=arduinoMessage.experimentElapsedTime/60000;%convert from msec to min
+                  set (handles.ElapsedTime, 'string',ExperimentTime);
+                  set(handles.SpeedDisplay, 'string',...
+                    arduinoMessage.carrouselVelocityMeterPerSec);
+                  set(handles.Stage_of_Trial, 'string', arduinoMessage.trailStage);
+                  set(handles.TexturePresented, 'string', arduinoMessage.thisTrialTexture); 
+                  if arduinoMessage.trialBeginningEvent == 2 %end of the experiment
+                      KEEP_READING =0;
+                  elseif arduinoMessage.trialBeginningEvent ==1
+                        TrialCounter=TrialCounter+1;
+                        set(handles.Current_Trial_Num, 'string', TrialCounter);
+                  end 
+
+                      %Making a table of licks and of openning water valves by the
+                      %user
+                      
+                      %1. extract from the data if the lick is at right or
+                      %left port
+                      %2. calculate for each lick in the Sample time if it was hit/miss 
+                      %and if it was a hit for port 1 or for fort 2
+                  if strcmp(arduinoMessage.trailStage,'It') %0 if the two strings aren't 
+                      %the same 1 is if the same
+                      ITI=1;
+                  else ITI=0;
+                  end
+
+                  if arduinoMessage.thisTrialTexture==1
+                      Sone=1;
+                  else
+                      Sone=2;
+                  end
+
+                  if (arduinoMessage.lickEventCorrectPort ==1 && arduinoMessage.thisTrialTexture==1)
+                      %there was a correct lick at 1(left)
+                      L_Licks=L_Licks+1; 
+                      set(handles.Left_Licks_counter, 'string',L_Licks);
+                      Table(1,Table_counter)=ExperimentTime;
+                      Table(2,Table_counter)=0;
+                      Table(3,Table_counter)=1;
+                      Table(4,Table_counter)=ITI;
+                      Table(5,Table_counter)=Sone;
+                      Table(6,Table_counter)=OpenR;
+                      Table(7,Table_counter)=OpenL;
+                      Table_counter=Table_counter+1;
+                      if arduinoMessage.lickEventCorrectTiming ==1
+                          L_Hits=L_Hits+1;
+                          set(handles.Hits_Left, 'string',L_Hits);
+                      end
+                  elseif(arduinoMessage.lickEventCorrectPort ==2 && arduinoMessage.thisTrialTexture==2) 
+                      %there was an incorrect lick at 1(left)
+                      L_Licks = L_Licks+1; 
+                      set(handles.Left_Licks_counter, 'string',L_Licks);
+                      Table(1,Table_counter)=ExperimentTime;
+                      Table(2,Table_counter)=0;%right lick
+                      Table(3,Table_counter)=1;%left lick
+                      Table(4,Table_counter)=ITI;
+                      Table(5,Table_counter)=Sone;
+                      Table(6,Table_counter)=OpenR;
+                      Table(7,Table_counter)=OpenL;
+                      Table_counter=Table_counter+1;
+
+                  elseif(arduinoMessage.lickEventCorrectPort ==1 && arduinoMessage.thisTrialTexture==2)
+                      %there was a correct lick at 2(right)
+                      R_Licks=R_Licks+1; 
+                      set(handles.Right_Licks_counter, 'string',R_Licks);
+                      Table(1,Table_counter)=ExperimentTime;
+                      Table(2,Table_counter)=1;%right lick
+                      Table(3,Table_counter)=0;%left lick
+                      Table(4,Table_counter)=ITI;
+                      Table(5,Table_counter)=Sone;
+                      Table(6,Table_counter)=OpenR;
+                      Table(7,Table_counter)=OpenL;
+                      Table_counter=Table_counter+1;
+                      if arduinoMessage.lickEventCorrectTiming ==1
+                          R_Hits=R_Hits+1;
+                          set(handles.Hits_Right, 'string',R_Hits);
+                      end
+                  elseif(arduinoMessage.lickEventCorrectPort ==2 && arduinoMessage.thisTrialTexture==1)
+                      %there was an incorrect lick at 2(right)
+                      R_Licks=R_Licks+1;
+                      set(handles.Right_Licks_counter, 'string',R_Licks);
+                      Table(1,Table_counter)=ExperimentTime;
+                      Table(2,Table_counter)=1;%right lick
+                      Table(3,Table_counter)=0;%left lick
+                      Table(4,Table_counter)=ITI;
+                      Table(5,Table_counter)=Sone;
+                      Table(6,Table_counter)=OpenR;
+                      Table(7,Table_counter)=OpenL;
+                      Table_counter=Table_counter+1;
+                  elseif(arduinoMessage.lickEventCorrectPort ==0 && (OpenR+OpenL)>0)
+                      %there was no lick but the user opened a valve
+                      Table(1,Table_counter)=ExperimentTime;
+                      Table(2,Table_counter)=0;%right lick
+                      Table(3,Table_counter)=0;%left lick
+                      Table(4,Table_counter)=ITI;
+                      Table(5,Table_counter)=Sone;
+                      Table(6,Table_counter)=OpenR;
+                      Table(7,Table_counter)=OpenL;
+                      Table_counter=Table_counter+1;
+                  end
+             end %there was content in the message 
+
+         KEEP_READING= ~get(handles.StopButton,'Value');
+         if ~KEEP_READING %stoping
+                stage='S';
+                fprintf(s,'%s',stage); 
+                pause(0.001);
+                delete(instrfindall);
+         end
+        if TrialCounter == params.N_Trials_Exp %AG 8-3-18
+            KEEP_READING=0;
+        end
+        pause(0.0001);
+        save(ReceivedDataFilename,'ReceivedData'); %8-3-18 moved from after trhe end of the while to before
+        save(Table_Filename,'Table');
+        end %of while 
+
+    case 5    %sending D  discrimination learning
     NumberofTrials=0;
     TotalLicks=0;
     GoCounter=0;
-    textureOne=0;textureTwo=0;
+%     textureOne=0;
+%     textureTwo=0;
    %KEEP_READING is set to 1 already at line 119
+   
    while KEEP_READING     % reading data loop starts here
-        arduinoMessage = readAndParseArduionoSerialMessage(s);
-        %check if message has content
-        if numel(arduinoMessage)>0
-            
+        arduinoMessage = readAndParseArduionoSerialMessage(s);        
+        if numel(arduinoMessage)>0 %check if message has content
             %save all messages from Arduino into filename: mouseName_date_time
             ReceivedData(arduinoMessage.messageId)=arduinoMessage; 
+            
             set(handles.SpeedDisplay, 'string',...
                 arduinoMessage.carrouselVelocityMeterPerSec);
 
@@ -272,23 +631,19 @@ switch (params.TrainingStages)
                     set(handles.Stage_of_Trial, 'string', 'Sample');
                     set(handles.TexturePresented, 'string', arduinoMessage.thisTrialTexture);
                     NumberofTrials=NumberofTrials+1;%counting trials
-                    if arduinoMessage.thisTrialTexture==1
-                        textureOne=textureOne+1;
-                    elseif arduinoMessage.thisTrialTexture==2
-                        textureTwo=textureTwo+1;
-                    end
-                        Temp=textureTwo-textureOne;
-                        Temp
+                    set (handles.Current_Trial_Num, 'string', NumberofTrials);
+%                     if arduinoMessage.thisTrialTexture==1
+%                         textureOne=textureOne+1;
+%                     elseif arduinoMessage.thisTrialTexture==2
+%                         textureTwo=textureTwo+1;
+%                     end
                     if NumberofTrials ==1 %at 1st time
-                        arduinoMessage.Mouse=params.MouseName;%adding " mouse_Date "
-                        set(handles.LicksDisplay, 'string', '0');
-                        set(handles.HitsDisplay, 'string', '0');                     
-                        set(handles.GoDisplay, 'string', '0');
-                        set(handles.Display_END, 'string', 'RUNNING'); 
+                        arduinoMessage.Mouse=params.MouseName;%adding " mouse_Date " 
                     else
                         %GoNoGoM columns are trials
-                        %row 1 is 0 for no-go, 1 for go
-                        %row 2 is texture presented
+                        % row 1 is 0 for no-go, 1 for go
+                        % row 2 is texture presented for a go trial
+                        % row 3 is the time of go
                         GoNoGoM(1,NumberofTrials)=FlagGo;
                         if FlagGo
                             GoNoGoM(2,NumberofTrials)=GoTexture;
@@ -297,7 +652,6 @@ switch (params.TrainingStages)
                             GoNoGoM(2,NumberofTrials)= 0;
                             GoNoGoM(3,NumberofTrials)= 0;
                         end
-
                        %display of hits and of total go
                         TotalGo=sum(GoNoGoM(1,:));
                         set(handles.GoDisplay, 'string', TotalGo);
@@ -332,7 +686,6 @@ switch (params.TrainingStages)
                     end  %for else corresponding to NumberofTrials ==1
                    %reaching here in every new trial, AFTER using FlagGo
                     FlagGo=0;
-                    set (handles.Current_Trial_Num, 'string', NumberofTrials);
                     
                     %Plot of percent correct lick timing within the last N
                     %trials
@@ -343,6 +696,7 @@ switch (params.TrainingStages)
                    end %of if for making Corrcet-time- Licks plot 
                    IncorrectTimeLicksPerTrial=0;
                    CorrectTimeLicksPerTrial=0;
+                   
                 case 0 %if we are here, there was a lick and/or a new stage in the trial.
                         switch (arduinoMessage.trailStage)
                         %replace the 2 chars in the Aruino message with 
@@ -368,18 +722,18 @@ switch (params.TrainingStages)
                         set(handles.Stage_of_Trial, 'string', arduinoMessage.trailStage);
 
                         switch (arduinoMessage.lickEventCorrectTiming) %lick analysis
-                        case -1 %no lick;   %0 incorrect time; 1 corect time
-                            %MessageDone=1;
+                        case 0 %no lick;   %2 incorrect time; 1 corect time
                             
-                            %if there's a lick cases 0 or 1
+                            %if there's a lick (cases 2 or 1)
                             %making a LickMatrix in which each lick is a
                             %column
                             %1st row is correct(1) or incorrect (0) time
                             %2nd row time of the lick from Ex begining
                             %3rd row is trial number
                             %4th row is trial stage
-
-                        case 0 %lick outside of response time
+                            %5th row is texture 
+                            
+                        case 2 %lick outside of response time
                             TotalLicks=TotalLicks+1;
                             IncorrectTimeLicksPerTrial=IncorrectTimeLicksPerTrial+1;
                             LicksMatrix(1,TotalLicks)=0;
@@ -417,9 +771,14 @@ switch (params.TrainingStages)
              %3rd row - texture  
                                 FlagGo=1;
                                 GoCounter=GoCounter+1;
-                                GoTime=arduinoMessage.experimentElapsedTime;
-                                GoTexture=arduinoMessage.thisTrialTexture;
-                                HitOrMiss(1,GoCounter)=arduinoMessage.lickEventCorrectPort;
+                                GoTime=arduinoMessage.experimentElapsedTime;%need to remember for the next trial
+                                GoTexture=arduinoMessage.thisTrialTexture; %need to remember for the next trial
+                                if arduinoMessage.lickEventCorrectPort ~=1
+                                    AtPort=0;
+                                else
+                                    AtPort=1;
+                                end
+                                HitOrMiss(1,GoCounter)=AtPort;
                                 HitOrMiss(2,GoCounter)=arduinoMessage.experimentElapsedTime;
                                 HitOrMiss(3,GoCounter)=arduinoMessage.thisTrialTexture;
                                 HitsN=sum(HitOrMiss(1,:));
@@ -459,20 +818,19 @@ switch (params.TrainingStages)
 
         end %got a non empty message
         if KEEP_READING %at end of experiemnt KEEP_READING= 0 
-            KEEP_READING= ~get(handles.StopButton,'Value');
-             if ~KEEP_READING
+            KEEP_READING=~get(handles.StopButton,'Value');%before pushed StopButton=0
+             if KEEP_READING==0
                     stage='S';
                     fprintf(s,'%s',stage); 
                     pause(0.001);
                     delete(instrfindall);
              end
         end
-        pause(0.0001);
-   end
+   pause(0.0001);
+   end %of while reading
    ReceivedDataFilename=['Received_', params.MouseName];
-   save(ReceivedDataFilename,'ReceivedData'); % see line 266
+   save(ReceivedDataFilename,'ReceivedData');        
             
-            % end of the while reading loop
    %saving the 3 matrixes
     GoNoGoM_Filename=['GoNoGoM_', params.MouseName];
     save(GoNoGoM_Filename,'GoNoGoM');
@@ -484,11 +842,8 @@ switch (params.TrainingStages)
     save(HitOrMiss_Filename,'HitOrMiss');
 end %of switch for traing types. 
 
-
-
-fclose (s);  % closing COM port
+%fclose (s);  % closing COM port
 delete (s);   % deleting serial port object
-
 
 
 % --- Executes on button press in StopButton.
@@ -1110,18 +1465,18 @@ end
 
 
 
-function edit37_Callback(hObject, eventdata, handles)
-% hObject    handle to edit37 (see GCBO)
+function OpenWater_Callback(hObject, eventdata, handles)
+% hObject    handle to OpenWater (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-% Hints: get(hObject,'String') returns contents of edit37 as text
-%        str2double(get(hObject,'String')) returns contents of edit37 as a double
+% Hints: get(hObject,'String') returns contents of OpenWater as text
+%        str2double(get(hObject,'String')) returns contents of OpenWater as a double
 
 
 % --- Executes during object creation, after setting all properties.
-function edit37_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to edit37 (see GCBO)
+function OpenWater_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to OpenWater (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
@@ -1130,3 +1485,192 @@ function edit37_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
+
+
+
+function PinP_Callback(hObject, eventdata, handles)
+% hObject    handle to PinP (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of PinP as text
+%        str2double(get(hObject,'String')) returns contents of PinP as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function PinP_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to PinP (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function Right_Licks_counter_Callback(hObject, eventdata, handles)
+% hObject    handle to Right_Licks_counter (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Right_Licks_counter as text
+%        str2double(get(hObject,'String')) returns contents of Right_Licks_counter as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Right_Licks_counter_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Right_Licks_counter (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function Left_Licks_counter_Callback(hObject, eventdata, handles)
+% hObject    handle to Left_Licks_counter (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Left_Licks_counter as text
+%        str2double(get(hObject,'String')) returns contents of Left_Licks_counter as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Left_Licks_counter_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Left_Licks_counter (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function Hits_Left_Callback(hObject, eventdata, handles)
+% hObject    handle to Hits_Left (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Hits_Left as text
+%        str2double(get(hObject,'String')) returns contents of Hits_Left as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Hits_Left_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Hits_Left (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function Hits_Right_Callback(hObject, eventdata, handles)
+% hObject    handle to Hits_Right (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Hits_Right as text
+%        str2double(get(hObject,'String')) returns contents of Hits_Right as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Hits_Right_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Hits_Right (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- If Enable == 'on', executes on mouse press in 5 pixel border.
+% --- Otherwise, executes on mouse press in 5 pixel border or over Open_left.
+function Open_left_ButtonDownFcn(hObject, eventdata, handles)
+% hObject    handle to Open_left (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+
+
+function Rotation_angle_Callback(hObject, eventdata, handles)
+% hObject    handle to Rotation_angle (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Rotation_angle as text
+%        str2double(get(hObject,'String')) returns contents of Rotation_angle as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Rotation_angle_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Rotation_angle (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+
+function Cue_Freqency_Callback(hObject, eventdata, handles)
+% hObject    handle to Cue_Freqency (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of Cue_Freqency as text
+%        str2double(get(hObject,'String')) returns contents of Cue_Freqency as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function Cue_Freqency_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to Cue_Freqency (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- If Enable == 'on', executes on mouse press in 5 pixel border.
+% --- Otherwise, executes on mouse press in 5 pixel border or over StopButton.
+function StopButton_ButtonDownFcn(hObject, eventdata, handles)
+%KEEP_READING=0;  %AG added 6 March 2018
+% hObject    handle to StopButton (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+
+% --- Executes on key press with focus on StopButton and none of its controls.
+function StopButton_KeyPressFcn(hObject, eventdata, handles)
+%KEEP_READING=0;  %AG added 6 March 2018
+% hObject    handle to StopButton (see GCBO)
+% eventdata  structure with the following fields (see MATLAB.UI.CONTROL.UICONTROL)
+%	Key: name of the key that was pressed, in lower case
+%	Character: character interpretation of the key(s) that was pressed
+%	Modifier: name(s) of the modifier key(s) (i.e., control, shift) pressed
+% handles    structure with handles and user data (see GUIDATA)
